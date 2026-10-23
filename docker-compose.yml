@@ -1,0 +1,90 @@
+services:
+  # 1. MongoDB Database Container
+  mongodb:
+    image: mongo:7.0
+    container_name: biovault_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=biotech_ip_platform
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - biovault_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Caching Container
+  redis:
+    image: redis:7-alpine
+    container_name: biovault_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - biovault_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Node.js + Express Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: biovault_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/biotech_ip_platform
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=biotech_ip_platform_super_secret_jwt_key_2026_enterprise
+      - JWT_EXPIRES_IN=7d
+      - CORS_ORIGIN=http://localhost:5173,http://localhost:80,http://localhost:3000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - biovault_network
+
+  # 4. React Frontend Web Application (Nginx SPA Reverse Proxy)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: biovault_frontend
+    restart: always
+    ports:
+      - "80:80"
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - biovault_network
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  biovault_network:
+    driver: bridge
